@@ -221,7 +221,6 @@ end
 
 function get_rhs_simplified!(eval, b, row_idx, degT, h, nCells, y, y_trial, integrand, transport)
     S = integrand.precodomain
-    println(S)
     # loop: time intervals
     for i in 1:nCells
         yl = eval(y, i, 0.0)
@@ -230,7 +229,6 @@ function get_rhs_simplified!(eval, b, row_idx, degT, h, nCells, y, y_trial, inte
         yl_trial = eval(y_trial, i, 0.0)
         yr_trial = eval(y_trial, i, 1.0)
 
-        println(y_trial)
 
         Tcl = get_basis(S, yl.x[row_idx], DefaultOrthonormalBasis())
         Tl = get_vectors(S, yl.x[row_idx], Tcl)
