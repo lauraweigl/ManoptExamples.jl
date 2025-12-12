@@ -9,6 +9,9 @@ nCell:    total number of intervals\\
 y:       iterate\\
 ...
 """
+
+# Die Funktion braucht man, wenn man eine Testfunktion in der Ableitung des Vektortransports hat und eine außerhalb, also z.B. A'(y)ϕ(P'(y)δy p)
+
 function get_Jac_Lyy!(eval, A, row_idx, col_idx, h, nCells, y, integrand, transport)
     M = integrand.domain
     N = integrand.precodomain

@@ -44,8 +44,10 @@ begin
 	y03 = [0,0,0] # start lambda
 	yT3 = [0,0,0] # end lambda
 
-	α = 0.00811;
+	α = 0.003;
 	yd = [1/sqrt(3)*[1.0,1.0,1.0] for Ωi in Omega];
+
+	scaling = 1.0
 	#yd = [[1.0,1.0,1.0] for Ωi in Omega];
 end;
 
@@ -145,12 +147,12 @@ $$\alpha\int_\Omega \langle \delta u_2, \delta u_1\rangle \; dt$$
 
 # ╔═╡ db2cc3ff-e823-469f-9c8f-cd42b5cc837f
 function stationary_equation_at(Integrand, y, ydot, T, Tdot)
-	return α*y.x[2]'*T + T'*y.x[3]
+	return α*y.x[2]'*T*((1.0-scaling)+scaling*norm(ydot.x[1])) + T'*y.x[3]
 end;
 
 # ╔═╡ 50fc9f8e-6ab6-43c7-9762-7393ddca8827
 function stationary_prime_u_at(Integrand, y, ydot, B, Bdot, T, Tdot)
-	return α*B'*T
+	return α*B'*T*((1.0-scaling)+scaling*norm(ydot.x[1]))
 end;
 
 # ╔═╡ 312cb447-a613-4180-a1bf-0a844c07fa82
@@ -184,24 +186,29 @@ $$L''(y)\delta y_2\delta y_1 = \int_\Omega \langle\delta y_2, \delta y_1\rangle\
 $$\rightsquigarrow$$ ein Summand in $$L_{yy}$$
 """
 
-# ╔═╡ ff8d7450-5c29-4030-9d70-8b149cc27837
-function L_prime_at(Integrand, y, ydot, T, Tdot)
-	  return (y.x[1] - yd[1])'*T + Tdot'*ydot.x[3]
-end;
-
-# ╔═╡ dbb9fbbd-38d5-45da-bc8c-770b9a91b675
-function L_doubleprime_at(Integrand,y,ydot,B,Bdot,T,Tdot)
-	return B'*T
+# ╔═╡ c91f8ccf-40e0-4973-b027-3e00e1e39349
+function Jy_rhs_at(Integrand, y, ydot, T, Tdot)
+	return (y.x[1]-yd[1])'*T + scaling * α/2 * norm(y.x[2])^2 * (ydot.x[1]'*Tdot)/norm(ydot.x[1])
 end;
 
 # ╔═╡ 53b242b6-745c-43fd-95cd-a05ca3e10a2f
-function J1_prime_at(Integrand, y, ydot, T, Tdot)
-	return (y.x[1] - yd[1])'*T
+function Jy_at(Integrand, y, ydot, T, Tdot)
+	return (y.x[1]-yd[1])'*T + Tdot'*ydot.x[3] + scaling * α/2 * norm(y.x[2])^2 * (ydot.x[1]'*Tdot)/norm(ydot.x[1])
+end;
+
+# ╔═╡ ab627138-d025-4f9d-8f71-d806daa1a519
+function Jy_Rest_at(Integrand,y,ydot,B,Bdot,T,Tdot)
+	return α/2 * norm(y.x[2])^2 * (ydot.x[1]'*Bdot)/norm(ydot.x[1])
 end;
 
 # ╔═╡ a8d6c6d0-2b12-493a-9827-48a9706a20a2
-function J1_doubleprime_at(Integrand,y,ydot,B,Bdot,T,Tdot)
-	return B'*T
+function Jyy_at(Integrand,y,ydot,B,Bdot,T,Tdot)
+	return B'*T + scaling * α/2 * norm(y.x[2])^2 * ((Tdot'*Bdot)/norm(ydot.x[1]) - (ydot.x[1]'*Tdot * ydot.x[1]' * Bdot)/norm(ydot.x[1])^3)
+end;
+
+# ╔═╡ 2039981c-c065-4911-8edc-ec592c0adfcf
+function Jyu_at(Integrand,y,ydot,B,Bdot,T,Tdot)
+	return scaling * α * (y.x[2]' * B * ydot.x[1]' * Tdot)/norm(ydot.x[1])
 end;
 
 # ╔═╡ 208bcc35-4258-4aa4-9302-df0b44999f5f
@@ -245,7 +252,6 @@ end;
 # ╔═╡ a80c462e-b999-4f69-b6d5-536e94e7f536
 function P_doubleprime_et_al(Integrand,y,B,T)
 	return transport_by_proj_doubleprime(S, y.x[1], T, B, y.x[3]) + transport_by_proj_prime(S, y.x[1], transport_by_proj_prime(S, y.x[1], B, T), y.x[3])
-	#return [0.0,0.0,0.0]
 end;
 
 # ╔═╡ 8552ff47-9c4c-4028-b6cd-635f144ae522
@@ -260,7 +266,6 @@ begin
 	transport=DifferentiableMapping(S,S,transport_by_proj,transport_by_proj_prime)
 
 # für den L_yy-Block:
-	integrand_L_prime = DifferentiableMapping(S,S, L_prime_at, L_doubleprime_at)
 	# ergibt die ersten drei Summanden durch kovariante Ableitung, Assemblierung mit Vektortransport durch Projektion
 	
 	integrand_Lyy_1 = DifferentiableMapping(S,S,state_equation_at,state_equation_prime_y_at)
@@ -285,7 +290,11 @@ begin
 
 
 # für die rechte Seite:
-integrandJ1 = DifferentiableMapping(S,S,J1_prime_at, J1_doubleprime_at)
+integrandJy = DifferentiableMapping(S,S,Jy_rhs_at, Jyy_at)
+integrandJyy = DifferentiableMapping(S,S,Jy_at,Jyy_at)
+
+	
+integrandJu = DifferentiableMapping(R3,S,Jy_at, Jyu_at)
 	
 integrand_state_eq = DifferentiableMapping(S,S,state_equation_at, state_equation_prime_y_at)
 
@@ -303,8 +312,7 @@ end
 
 # ╔═╡ 1c0028e5-6beb-4512-b1f3-c18780b68ad8
 begin
-mutable struct NewtonEquation{F1, F2, F3, F13, F23, F21, F22, J1, SE, T1, T2, T3, Om, NM, Nrhs}
-	integrand_Lprime::F1
+mutable struct NewtonEquation{F2, F3, F13, F23, F21, F22, J1, J2, SE, T1, T2, T3, Om, NM, Nrhs}
 	integrand_Lyy1::F2
 	integrand_Lyy2::F3
 	integrand_L_yu::F13
@@ -312,6 +320,7 @@ mutable struct NewtonEquation{F1, F2, F3, F13, F23, F21, F22, J1, SE, T1, T2, T3
 	integrand_L_uλ::F21
 	integrand_L_uu::F22
 	integrandJ_1::J1
+	integrandJ_2::J2
 	integrand_stateeq::SE
 	VT::T1
 	transport_Lyy1::T2
@@ -330,7 +339,7 @@ mutable struct NewtonEquation{F1, F2, F3, F13, F23, F21, F22, J1, SE, T1, T2, T3
 	b::Nrhs
 end
 
-function NewtonEquation(M, int1, int2, int3, int13, int23, int21, int22, intJ1, intSE, VTP, VT1, VT2, time)
+function NewtonEquation(M, int2, int3, int13, int23, int21, int22, intJ1, intJ2, intSE, VTP, VT1, VT2, time)
 	n1 = Int(manifold_dimension(submanifold(M, 1)))
 	n2 = Int(manifold_dimension(submanifold(M, 2)))
 	n3 = n1 # Dim muss 2 sein (aktuell liegt λ im R3, deswegen hier per Hand)
@@ -348,7 +357,7 @@ function NewtonEquation(M, int1, int2, int3, int13, int23, int21, int22, intJ1, 
 	b3 = zeros(n3)
 	b = zeros(n1+n2+n3)
 	
-	return NewtonEquation{typeof(int1), typeof(int2), typeof(int3), typeof(int13), typeof(int23), typeof(int21), typeof(int22), typeof(intJ1), typeof(intSE), typeof(VTP), typeof(VT1), typeof(VT2), typeof(time), typeof(A11), typeof(b1)}(int1, int2, int3, int13, int23, int21, int22, intJ1, intSE, VTP, VT1, VT2, time, A11, A12, A13, A22, A23, A33, A, b1, b2, b3, b)
+	return NewtonEquation{typeof(int2), typeof(int3), typeof(int13), typeof(int23), typeof(int21), typeof(int22), typeof(intJ1), typeof(intJ2), typeof(intSE), typeof(VTP), typeof(VT1), typeof(VT2), typeof(time), typeof(A11), typeof(b1)}(int2, int3, int13, int23, int21, int22, intJ1, intJ2, intSE, VTP, VT1, VT2, time, A11, A12, A13, A22, A23, A33, A, b1, b2, b3, b)
 end
 	
 function (ne::NewtonEquation)(M, VB, p)
@@ -381,15 +390,16 @@ function (ne::NewtonEquation)(M, VB, p)
 
 	nCells = length(ne.interval)+1
 	
-
-	ManoptExamples.get_Jac!(evaluate,ne.A11,1,1,1,1,h,nCells,Oy,ne.integrand_Lprime,ne.VT)
+	ManoptExamples.get_Jac!(evaluate,ne.A11,1,1,1,1,h,nCells,Oy,integrandJyy,ne.VT)
 	ManoptExamples.get_Jac_Lyy!(evaluate,A11_helper,1,1,h,nCells,Oy,ne.integrand_Lyy1,ne.transport_Lyy1)
 	ne.A11 += A11_helper + A11_helper'	
 	A11_helper *= 0.0
-	ManoptExamples.get_Jac_Lyy!(evaluate,A11_helper,1,1,h,nCells,Oy,ne.integrand_Lyy2,ne.transport_Lyy2)
-	ne.A11 += A11_helper
+	ManoptExamples.get_Jac_Lyy!(evaluate,ne.A11,1,1,h,nCells,Oy,ne.integrand_Lyy2,ne.transport_Lyy2)
+	
 
 	ManoptExamples.get_Jac!(evaluate,ne.A12,1,1,2,1,h,nCells,Oy, ne.integrand_L_yu, zerotransport)
+	ManoptExamples.get_Jac!(evaluate,ne.A12,1,1,2,1,h,nCells,Oy,ne.integrandJ_2, zerotransport)
+
 	#ManoptExamples.get_Jac!(evaluate,ne.A23,2,1,3,1,h,nCells,Oy, ne.integrand_L_uλ, zerotransport) siehe b3
 	ManoptExamples.get_Jac!(evaluate,ne.A23,2,1,1,1,h,nCells,Oy, ne.integrand_L_uλ, zerotransport)
 	#ManoptExamples.get_Jac!(evaluate,ne.A13,1,1,3,1,h,nCells,Oy,ne.integrand_L_λy,ne.VT) siehe b3
@@ -398,8 +408,8 @@ function (ne::NewtonEquation)(M, VB, p)
 	
 	lambda_helper = get_coordinates(powerS, p[M,1], p[M,3], DefaultOrthogonalBasis())
 	ne.b1 = ne.A13 * lambda_helper
-	
 	ManoptExamples.get_rhs_row!(evaluate,ne.b1,1,1,h,nCells,Oy,ne.integrandJ_1)
+	
 	ManoptExamples.get_rhs_row!(evaluate,ne.b2,2,1,h,nCells,Oy,ne.integrand_L_uλ)
 	# ManoptExamples.get_rhs_row!(evaluate,ne.b3,3,1,h,nCells,Oy,ne.integrand_stateeq) das wäre eigentlich der "richtige" Aufruf, col_idx wird per hand auf 1 (d.h. so, dass er y als Punkt verwendet und nicht λ) gesetzt)
 	ManoptExamples.get_rhs_row!(evaluate,ne.b3,1,1,h,nCells,Oy,ne.integrand_stateeq)
@@ -483,12 +493,12 @@ pr = ProductRetraction(ProjectionRetraction(), ExponentialRetraction(), Exponent
 
 # ╔═╡ 5220a0dd-9484-4556-a7d0-ecf94955bf6c
 begin
-	NE = NewtonEquation(product, integrand_L_prime, integrand_Lyy_1, integrand_Lyy_2, integrand_Lyu, integrand_Lλy, integrand_Luλ, integrand_Luu, integrandJ1, integrand_state_eq, transport, transport_Lyy_1, transport_Lyy_2, Omega)
+	NE = NewtonEquation(product, integrand_Lyy_1, integrand_Lyy_2, integrand_Lyu, integrand_Lλy, integrand_Luλ, integrand_Luu, integrandJy, integrandJu, integrand_state_eq, transport, transport_Lyy_1, transport_Lyy_2, Omega)
 
 	st_res = vectorbundle_newton(product, TangentBundle(product), NE, y_0; sub_problem=solve_in_basis_repr, sub_state=AllocatingEvaluation(),
 	stopping_criterion=(StopAfterIteration(150)|StopWhenChangeLess(product,1e-11; outer_norm=Inf)),
 	retraction_method=pr,
-	stepsize=AffineCovariantStepsize(product, θ_des=0.3, outer_norm=Inf),
+	stepsize=AffineCovariantStepsize(product, θ_des=0.1, outer_norm=Inf),
 	debug=[:Iteration, (:Change, "Change: %1.8e"), :Stepsize, "\n", :Stop],
 	record=[:Iterate, :Change, :Stepsize],
 	return_state=true
@@ -517,7 +527,7 @@ p_res = get_solver_result(st_res);
 
 # ╔═╡ ac49e504-f3ba-4a5e-9a66-21160f38874e
 begin
-n = 45
+n = 25
 u2 = range(0,stop=2*π,length=n);
 v = range(0,stop=π,length=n);
 sx = zeros(n,n); sy = zeros(n,n); sz = zeros(n,n)
@@ -584,10 +594,11 @@ norm(p_res.x[2])
 # ╟─a5145e5e-78ad-4493-954f-9fd6b5c6fc5d
 # ╠═1973b655-4368-4310-a218-be7b5be9f64e
 # ╟─79a1738b-450b-4cfa-822f-1811eb5a5905
-# ╠═ff8d7450-5c29-4030-9d70-8b149cc27837
-# ╠═dbb9fbbd-38d5-45da-bc8c-770b9a91b675
+# ╠═c91f8ccf-40e0-4973-b027-3e00e1e39349
 # ╠═53b242b6-745c-43fd-95cd-a05ca3e10a2f
+# ╠═ab627138-d025-4f9d-8f71-d806daa1a519
 # ╠═a8d6c6d0-2b12-493a-9827-48a9706a20a2
+# ╠═2039981c-c065-4911-8edc-ec592c0adfcf
 # ╠═259c5f1b-5447-4690-a706-5dcc4c9fa5bb
 # ╠═a80c462e-b999-4f69-b6d5-536e94e7f536
 # ╟─208bcc35-4258-4aa4-9302-df0b44999f5f
