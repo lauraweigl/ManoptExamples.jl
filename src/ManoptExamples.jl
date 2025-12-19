@@ -49,7 +49,7 @@ include("objectives/RobustPCA.jl")
 include("objectives/Rosenbrock.jl")
 include("objectives/TotalVariation.jl")
 include("objectives/VariationalProblemAssembler.jl")
-include("objectives/ProductVariationalProblemAssembler.jl")
+#include("objectives/ProductVariationalProblemAssembler.jl")
 include("objectives/optimalControlAssembler.jl")
 
 
