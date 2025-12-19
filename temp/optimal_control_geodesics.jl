@@ -22,10 +22,28 @@ begin
 	using DataFrames, CSV
 end;
 
-# ╔═╡ aeceb735-da1b-4db5-9964-538b316441c2
+# ╔═╡ e897f08f-8d16-4cf8-bc56-41c6c53e34d9
 begin
 	N=25
+	S = Manifolds.Sphere(2)
+	R3 = Manifolds.Euclidean(3)	
+	#TS = TangentBundle(S)
+		
+	powerS = PowerManifold(S, NestedPowerRepresentation(), N) #y
+	powerR3 = PowerManifold(R3, NestedPowerRepresentation(), N) #u
+	powerR3lambda = PowerManifold(R3, NestedPowerRepresentation(), N) #λ
+	# wir brauchen für λ am Ende dann einen Vektortransport (Projektion) in der Retraktion
+	product = ProductManifold(powerS, powerR3, powerR3lambda)
 	
+	mutable struct variational_space
+		manifold::AbstractManifold
+		degree::Integer
+	end
+	
+	test_spaces = ArrayPartition(variational_space(S, 1), variational_space(R3, 1), variational_space(S, 1))
+	
+	ansatz_spaces = ArrayPartition(variational_space(S, 1), variational_space(R3, 1), variational_space(S, 1))
+
 	st1 = 0.0
 	halt1 = 1.0
 	st = 0.5
@@ -34,6 +52,9 @@ begin
 	h = (halt-st)/(N+1)
 	#halt = pi - st
 	Omega = range(; start=st, stop = halt, length=N+2)[2:end-1]
+	start_interval = 0.5
+	end_interval = pi/2
+	discrete_time = range(; start=start_interval, stop = end_interval, length=N+2)
 	
 	y01 = [sin(st),0,cos(st)] # startpoint of geodesic
 	yT1 = [sin(halt),0,cos(halt)] # endpoint of geodesic
@@ -48,7 +69,6 @@ begin
 	yd = [1/sqrt(3)*[1.0,1.0,1.0] for Ωi in Omega];
 
 	scaling = 1.0
-	#yd = [[1.0,1.0,1.0] for Ωi in Omega];
 end;
 
 # ╔═╡ c6b1fd66-ef1f-427e-b8cc-d2da9c127ee3
@@ -85,7 +105,6 @@ mutable struct DifferentiableMapping{M<:AbstractManifold, N<:AbstractManifold,F1
 	precodomain::N
 	value::F1
 	derivative::F2
-	#scaling::T
 end
 
 # ╔═╡ b22850cc-26fa-4fbe-a919-0ae95c8571d6
@@ -113,6 +132,19 @@ end;
 md"""
 Helper routines
 """
+
+# ╔═╡ 452addcd-d0f4-4059-8de6-448045e5b670
+begin
+	function zerotrans_prime(S, p, X, dq)
+		return 0.0*dq
+	end
+
+	function identitytrans(S, p, X, q)
+		return X
+	end
+
+	zerotransport=DifferentiableMapping(R3,R3,identitytrans,zerotrans_prime)
+end;
 
 # ╔═╡ a3a135f0-c5e8-4825-8653-cbd68bbe795e
 md"""
@@ -211,39 +243,6 @@ function Jyu_at(Integrand,y,ydot,B,Bdot,T,Tdot)
 	return scaling * α * (y.x[2]' * B * ydot.x[1]' * Tdot)/norm(ydot.x[1])
 end;
 
-# ╔═╡ 208bcc35-4258-4aa4-9302-df0b44999f5f
-md"""
-Mannigfaltigkeiten für Variablen
-$$(y_{disc}, u_{disc}, \lambda_{disc}) \in (\mathbb{S}^2)^N \times (\mathbb{R}^3)^N \times (T_{y(t)}\mathbb{S}^2)^N $$\
-$$(y(t),u(t),\lambda(t)) \in \mathbb{S}^2 \times \mathbb{R}^3 \times T_{y(t)}\mathbb{S}^2$$
-"""
-
-# ╔═╡ 06d1f25c-80d8-4a07-8b53-3cabc90e70a9
-begin
-S = Manifolds.Sphere(2)
-R3 = Manifolds.Euclidean(3)	
-TS = TangentBundle(S)
-	
-powerS = PowerManifold(S, NestedPowerRepresentation(), N) #y
-powerR3 = PowerManifold(R3, NestedPowerRepresentation(), N) #u
-powerR3lambda = PowerManifold(R3, NestedPowerRepresentation(), N) #λ
-# wir brauchen für λ am Ende dann einen Vektortransport (Projektion) in der Retraktion
-product = ProductManifold(powerS, powerR3, powerR3lambda)
-end;
-
-# ╔═╡ 452addcd-d0f4-4059-8de6-448045e5b670
-begin
-	function zerotrans_prime(S, p, X, dq)
-		return 0.0*dq
-	end
-
-	function identitytrans(S, p, X, q)
-		return X
-	end
-
-	zerotransport=DifferentiableMapping(R3,R3,identitytrans,zerotrans_prime)
-end;
-
 # ╔═╡ 259c5f1b-5447-4690-a706-5dcc4c9fa5bb
 function P_prime_test_lambda(Integrand,y,B,T)
 	return transport_by_proj_prime(S, y.x[1], T, y.x[3])
@@ -253,6 +252,13 @@ end;
 function P_doubleprime_et_al(Integrand,y,B,T)
 	return transport_by_proj_doubleprime(S, y.x[1], T, B, y.x[3]) + transport_by_proj_prime(S, y.x[1], transport_by_proj_prime(S, y.x[1], B, T), y.x[3])
 end;
+
+# ╔═╡ 208bcc35-4258-4aa4-9302-df0b44999f5f
+md"""
+Mannigfaltigkeiten für Variablen
+$$(y_{disc}, u_{disc}, \lambda_{disc}) \in (\mathbb{S}^2)^N \times (\mathbb{R}^3)^N \times (T_{y(t)}\mathbb{S}^2)^N $$\
+$$(y(t),u(t),\lambda(t)) \in \mathbb{S}^2 \times \mathbb{R}^3 \times T_{y(t)}\mathbb{S}^2$$
+"""
 
 # ╔═╡ 8552ff47-9c4c-4028-b6cd-635f144ae522
 md"""
@@ -312,7 +318,7 @@ end
 
 # ╔═╡ 1c0028e5-6beb-4512-b1f3-c18780b68ad8
 begin
-mutable struct NewtonEquation{F2, F3, F13, F23, F21, F22, J1, J2, SE, T1, T2, T3, Om, NM, Nrhs}
+mutable struct NewtonEquation{F2, F3, F13, F23, F21, F22, J1, J2, SE, T1, T2, T3, Om, TS, AS, NM, Nrhs}
 	integrand_Lyy1::F2
 	integrand_Lyy2::F3
 	integrand_L_yu::F13
@@ -325,7 +331,9 @@ mutable struct NewtonEquation{F2, F3, F13, F23, F21, F22, J1, J2, SE, T1, T2, T3
 	VT::T1
 	transport_Lyy1::T2
 	transport_Lyy2::T3
-	interval::Om
+	discrete_time_interval::Om
+	test_space::TS
+	ansatz_space::AS
 	A11::NM
 	A12::NM
 	A13::NM
@@ -339,7 +347,7 @@ mutable struct NewtonEquation{F2, F3, F13, F23, F21, F22, J1, J2, SE, T1, T2, T3
 	b::Nrhs
 end
 
-function NewtonEquation(M, int2, int3, int13, int23, int21, int22, intJ1, intJ2, intSE, VTP, VT1, VT2, time)
+function NewtonEquation(M, int2, int3, int13, int23, int21, int22, intJ1, intJ2, intSE, VTP, VT1, VT2, time, test_sp, ansatz_sp)
 	n1 = Int(manifold_dimension(submanifold(M, 1)))
 	n2 = Int(manifold_dimension(submanifold(M, 2)))
 	n3 = n1 # Dim muss 2 sein (aktuell liegt λ im R3, deswegen hier per Hand)
@@ -357,7 +365,7 @@ function NewtonEquation(M, int2, int3, int13, int23, int21, int22, intJ1, intJ2,
 	b3 = zeros(n3)
 	b = zeros(n1+n2+n3)
 	
-	return NewtonEquation{typeof(int2), typeof(int3), typeof(int13), typeof(int23), typeof(int21), typeof(int22), typeof(intJ1), typeof(intJ2), typeof(intSE), typeof(VTP), typeof(VT1), typeof(VT2), typeof(time), typeof(A11), typeof(b1)}(int2, int3, int13, int23, int21, int22, intJ1, intJ2, intSE, VTP, VT1, VT2, time, A11, A12, A13, A22, A23, A33, A, b1, b2, b3, b)
+	return NewtonEquation{typeof(int2), typeof(int3), typeof(int13), typeof(int23), typeof(int21), typeof(int22), typeof(intJ1), typeof(intJ2), typeof(intSE), typeof(VTP), typeof(VT1), typeof(VT2), typeof(time), typeof(test_sp), typeof(ansatz_sp), typeof(A11), typeof(b1)}(int2, int3, int13, int23, int21, int22, intJ1, intJ2, intSE, VTP, VT1, VT2, time, test_sp, ansatz_sp, A11, A12, A13, A22, A23, A33, A, b1, b2, b3, b)
 end
 	
 function (ne::NewtonEquation)(M, VB, p)
@@ -367,7 +375,6 @@ function (ne::NewtonEquation)(M, VB, p)
 	
 	ne.A11 .= spzeros(n1,n1)
 	ne.A12 .= spzeros(n1,n2)
-	#ne.A11 .= Matrix{Float64}(I, n1, n1)
 	A11_helper = spzeros(n1,n1)
 	ne.A13 .= spzeros(n1,n3)
 	ne.A22 .= spzeros(n2,n2)
@@ -381,38 +388,39 @@ function (ne::NewtonEquation)(M, VB, p)
 	projected_λ = project(powerS, p[M,1], p[M, 3]) 
 	p[M, 3] = projected_λ
 	
-	Oy1 = OffsetArray([y01, p[M, 1]..., yT1], 0:(length(ne.interval)+1))
-	Oy2 = OffsetArray([y02, p[M, 2]..., yT2], 0:(length(ne.interval)+1))
-	Oy3 = OffsetArray([y03, p[M, 3]..., yT3], 0:(length(ne.interval)+1))
+	Oy1 = OffsetArray([y01, p[M, 1]..., yT1], 0:(length(p[M,1])+1))
+	Oy2 = OffsetArray([y02, p[M, 2]..., yT2], 0:(length(p[M,2])+1))
+	Oy3 = OffsetArray([y03, p[M, 3]..., yT3], 0:(length(p[M,3])+1))
 	Oy = ArrayPartition(Oy1,Oy2,Oy3);
 
 	# Retraktion für lambda (VT) per hand (λ+ = P(y+)(λ+δλ)), TODO: Im Newton die Retraktion richtig setzen
 
-	nCells = length(ne.interval)+1
-	
-	ManoptExamples.get_Jac!(evaluate,ne.A11,1,1,1,1,h,nCells,Oy,integrandJyy,ne.VT)
-	ManoptExamples.get_Jac_Lyy!(evaluate,A11_helper,1,1,h,nCells,Oy,ne.integrand_Lyy1,ne.transport_Lyy1)
+	ManoptExamples.get_jacobian_block!(M, Oy, evaluate,ne.A11,integrandJyy,ne.VT,ne.discrete_time_interval; row_index = 1, column_index = 1, test_space=ne.test_space.x[1], ansatz_space=ne.ansatz_space.x[1])
+
+	ManoptExamples.get_Jac_Lyy!(M, Oy, evaluate, A11_helper, ne.integrand_Lyy1, ne.transport_Lyy1, ne.discrete_time_interval; row_index = 1, column_index = 1, test_space = ne.test_space.x[1], ansatz_space = ne.ansatz_space.x[1])
 	ne.A11 += A11_helper + A11_helper'	
 	A11_helper *= 0.0
-	ManoptExamples.get_Jac_Lyy!(evaluate,ne.A11,1,1,h,nCells,Oy,ne.integrand_Lyy2,ne.transport_Lyy2)
+	ManoptExamples.get_Jac_Lyy!(M, Oy, evaluate, ne.A11, ne.integrand_Lyy2, ne.transport_Lyy2, ne.discrete_time_interval; row_index = 1, column_index = 1, test_space = ne.test_space.x[1], ansatz_space = ne.ansatz_space.x[1])
 	
 
-	ManoptExamples.get_Jac!(evaluate,ne.A12,1,1,2,1,h,nCells,Oy, ne.integrand_L_yu, zerotransport)
-	ManoptExamples.get_Jac!(evaluate,ne.A12,1,1,2,1,h,nCells,Oy,ne.integrandJ_2, zerotransport)
+	ManoptExamples.get_jacobian_block!(M, Oy, evaluate,ne.A12,ne.integrand_L_yu,zerotransport,ne.discrete_time_interval; row_index = 1, column_index = 2, test_space=ne.test_space.x[1], ansatz_space=ne.ansatz_space.x[2])
 
-	#ManoptExamples.get_Jac!(evaluate,ne.A23,2,1,3,1,h,nCells,Oy, ne.integrand_L_uλ, zerotransport) siehe b3
-	ManoptExamples.get_Jac!(evaluate,ne.A23,2,1,1,1,h,nCells,Oy, ne.integrand_L_uλ, zerotransport)
-	#ManoptExamples.get_Jac!(evaluate,ne.A13,1,1,3,1,h,nCells,Oy,ne.integrand_L_λy,ne.VT) siehe b3
-	ManoptExamples.get_Jac!(evaluate,ne.A13,1,1,1,1,h,nCells,Oy,ne.integrand_L_λy,ne.VT)
-	ManoptExamples.get_Jac!(evaluate,ne.A22,2,1,2,1,h,nCells,Oy,ne.integrand_L_uu, zerotransport)
+	ManoptExamples.get_jacobian_block!(M, Oy, evaluate,ne.A12,ne.integrandJ_2,zerotransport,ne.discrete_time_interval; row_index = 1, column_index = 2, test_space=ne.test_space.x[1], ansatz_space=ne.ansatz_space.x[2])
+
+	#column_index siehe b3
+	ManoptExamples.get_jacobian_block!(M, Oy, evaluate,ne.A23,ne.integrand_L_uλ,zerotransport,ne.discrete_time_interval; row_index = 2, column_index = 1, test_space=ne.test_space.x[2], ansatz_space=ne.ansatz_space.x[3])
+	
+	#colum_index siehe b3
+	ManoptExamples.get_jacobian_block!(M, Oy, evaluate,ne.A13,ne.integrand_L_λy,ne.VT,ne.discrete_time_interval; row_index = 1, column_index = 1, test_space=ne.test_space.x[1], ansatz_space=ne.ansatz_space.x[3])
+	
+	ManoptExamples.get_jacobian_block!(M, Oy, evaluate,ne.A22,ne.integrand_L_uu,zerotransport,ne.discrete_time_interval; row_index = 2, column_index = 2, test_space=ne.test_space.x[2], ansatz_space=ne.ansatz_space.x[2])
 	
 	lambda_helper = get_coordinates(powerS, p[M,1], p[M,3], DefaultOrthogonalBasis())
 	ne.b1 = ne.A13 * lambda_helper
-	ManoptExamples.get_rhs_row!(evaluate,ne.b1,1,1,h,nCells,Oy,ne.integrandJ_1)
-	
-	ManoptExamples.get_rhs_row!(evaluate,ne.b2,2,1,h,nCells,Oy,ne.integrand_L_uλ)
-	# ManoptExamples.get_rhs_row!(evaluate,ne.b3,3,1,h,nCells,Oy,ne.integrand_stateeq) das wäre eigentlich der "richtige" Aufruf, col_idx wird per hand auf 1 (d.h. so, dass er y als Punkt verwendet und nicht λ) gesetzt)
-	ManoptExamples.get_rhs_row!(evaluate,ne.b3,1,1,h,nCells,Oy,ne.integrand_stateeq)
+	ManoptExamples.get_right_hand_side_row!(M, Oy, evaluate, ne.b1, ne.integrandJ_1, ne.discrete_time_interval; row_index=1, test_space = ne.test_space.x[1])
+	ManoptExamples.get_right_hand_side_row!(M, Oy, evaluate, ne.b2, ne.integrand_L_uλ, ne.discrete_time_interval; row_index=2, test_space = ne.test_space.x[2])
+	#mit row_idx=3 wäre es eigentlich der "richtige" Aufruf, row_idx wird per hand auf 1 (d.h. so, dass er y als Punkt verwendet und nicht λ) gesetzt)
+	ManoptExamples.get_right_hand_side_row!(M, Oy, evaluate, ne.b3, ne.integrand_stateeq, ne.discrete_time_interval; row_index=1, test_space = ne.test_space.x[3])
 	
 	#A33 = 0 
 
@@ -436,41 +444,46 @@ function (ne::NewtonEquation)(M, VB, p, p_trial)
 	projected_λ = project(powerS, p[M,1], p[M, 3]) 
 	p[M, 3] = projected_λ
 	
-	Oy1 = OffsetArray([y01, p[M, 1]..., yT1], 0:(length(ne.interval)+1))
-	Oy2 = OffsetArray([y02, p[M, 2]..., yT2], 0:(length(ne.interval)+1))
-	Oy3 = OffsetArray([y03, p[M, 3]..., yT3], 0:(length(ne.interval)+1))
+	Oy1 = OffsetArray([y01, p[M, 1]..., yT1], 0:(length(p[M,1])+1))
+	Oy2 = OffsetArray([y02, p[M, 2]..., yT2], 0:(length(p[M,2])+1))
+	Oy3 = OffsetArray([y03, p[M, 3]..., yT3], 0:(length(p[M,3])+1))
 	Oy = ArrayPartition(Oy1,Oy2,Oy3);
 
 	unprojected_λ_trial = p_trial[M, 3]
 
-	Oytrial3_unproj = OffsetArray([y03, p_trial[M,3]..., yT3], 0:(length(ne.interval)+1))
+	Oytrial3_unproj = OffsetArray([y03, p_trial[M,3]..., yT3], 0:(length(p[M,3])+1))
 	
 	projected_λ_trial = project(powerS, p_trial[M,1], p_trial[M, 3]) 
 	p_trial[M, 3] = projected_λ_trial
 	
-	Oytrial1 = OffsetArray([y01, p_trial[M,1]..., yT1], 0:(length(ne.interval)+1))
-	Oytrial2 = OffsetArray([y02, p_trial[M,2]..., yT2], 0:(length(ne.interval)+1))
-	Oytrial3 = OffsetArray([y03, p_trial[M,3]..., yT3], 0:(length(ne.interval)+1))
+	Oytrial1 = OffsetArray([y01, p_trial[M,1]..., yT1], 0:(length(p[M,1])+1))
+	Oytrial2 = OffsetArray([y02, p_trial[M,2]..., yT2], 0:(length(p[M,2])+1))
+	Oytrial3 = OffsetArray([y03, p_trial[M,3]..., yT3], 0:(length(p[M,3])+1))
 	Oytrial = ArrayPartition(Oytrial1,Oytrial2,Oytrial3);
 
 	Oytrial_unproj = ArrayPartition(Oytrial1,Oytrial2,Oytrial3_unproj)
 
-
-	nCells = length(ne.interval) + 1
-
-	ManoptExamples.get_rhs_simplified_y!(evaluate,bctrial1,1,1,h,nCells,Oy,Oytrial_unproj,ne.integrand_Lyy1, ne.VT)
+	#TODO:
+	#ManoptExamples.get_rhs_simplified_y!(evaluate,bctrial1,1,1,h,nCells,Oy,Oytrial_unproj,ne.integrand_Lyy1, ne.VT)
 	
 	A13_trial = spzeros(n1,n3)
-	ManoptExamples.get_Jac_simplified!(evaluate,A13_trial,1,1,1,1,h,nCells, Oy,Oytrial,ne.integrand_L_λy,ne.VT)
+	#ManoptExamples.get_Jac_simplified!(evaluate,A13_trial,1,1,1,1,h,nCells, Oy,Oytrial,ne.integrand_L_λy,ne.VT)
+
+	#TODO:
+	#ManoptExamples.get_jacobian_simplified!(M, Oy, Oytrial, evaluate,A13_trial,ne.integrand_L_λy,ne.VT,ne.discrete_time_interval; row_index = 1, column_index = 1, test_space=ne.test_space.x[1], ansatz_space=ne.ansatz_space.x[3])
 
 	lambda_helper = get_coordinates(powerS, p_trial[M,1], p_trial[M,3], DefaultOrthogonalBasis())
 	
 	bctrial1 += A13_trial * lambda_helper
 	
-	ManoptExamples.get_rhs_simplified!(evaluate,bctrial1,1,1,h,nCells,Oy,Oytrial,ne.integrandJ_1, ne.VT)
+	#ManoptExamples.get_rhs_simplified!(evaluate,bctrial1,1,1,h,nCells,Oy,Oytrial,ne.integrandJ_1, ne.VT)
+	ManoptExamples.get_right_hand_side_simplified_row!(M, Oy, Oytrial, evaluate, bctrial1, ne.integrandJ_1, ne.VT, ne.discrete_time_interval; row_index = 1, test_space = ne.test_space.x[1])
 
-	ManoptExamples.get_rhs_simplified!(evaluate,bctrial2,2,1,h,nCells,Oy,Oytrial,ne.integrand_L_uλ, zerotransport)
-	ManoptExamples.get_rhs_simplified!(evaluate,bctrial3,1,1,h,nCells,Oy,Oytrial,ne.integrand_stateeq, ne.VT)
+	#ManoptExamples.get_rhs_simplified!(evaluate,bctrial2,2,1,h,nCells,Oy,Oytrial,ne.integrand_L_uλ, zerotransport)
+	ManoptExamples.get_right_hand_side_simplified_row!(M, Oy, Oytrial, evaluate, bctrial2, ne.integrand_L_uλ, zerotransport, ne.discrete_time_interval; row_index = 2, test_space = ne.test_space.x[2])
+	
+	#ManoptExamples.get_rhs_simplified!(evaluate,bctrial3,1,1,h,nCells,Oy,Oytrial,ne.integrand_stateeq, ne.VT)
+	ManoptExamples.get_right_hand_side_simplified_row!(M, Oy, Oytrial, evaluate, bctrial3, ne.integrand_stateeq, ne.VT, ne.discrete_time_interval; row_index = 1, test_space = ne.test_space.x[3])
 	
 	return vcat(bctrial1,bctrial2, bctrial3)
 end
@@ -493,12 +506,12 @@ pr = ProductRetraction(ProjectionRetraction(), ExponentialRetraction(), Exponent
 
 # ╔═╡ 5220a0dd-9484-4556-a7d0-ecf94955bf6c
 begin
-	NE = NewtonEquation(product, integrand_Lyy_1, integrand_Lyy_2, integrand_Lyu, integrand_Lλy, integrand_Luλ, integrand_Luu, integrandJy, integrandJu, integrand_state_eq, transport, transport_Lyy_1, transport_Lyy_2, Omega)
+	NE = NewtonEquation(product, integrand_Lyy_1, integrand_Lyy_2, integrand_Lyu, integrand_Lλy, integrand_Luλ, integrand_Luu, integrandJy, integrandJu, integrand_state_eq, transport, transport_Lyy_1, transport_Lyy_2, discrete_time, test_spaces, ansatz_spaces)
 
 	st_res = vectorbundle_newton(product, TangentBundle(product), NE, y_0; sub_problem=solve_in_basis_repr, sub_state=AllocatingEvaluation(),
 	stopping_criterion=(StopAfterIteration(150)|StopWhenChangeLess(product,1e-11; outer_norm=Inf)),
 	retraction_method=pr,
-	stepsize=AffineCovariantStepsize(product, θ_des=0.1, outer_norm=Inf),
+	#stepsize=AffineCovariantStepsize(product, θ_des=0.01, outer_norm=Inf),
 	debug=[:Iteration, (:Change, "Change: %1.8e"), :Stepsize, "\n", :Stop],
 	record=[:Iterate, :Change, :Stepsize],
 	return_state=true
@@ -575,7 +588,7 @@ norm(p_res.x[2])
 # ╔═╡ Cell order:
 # ╠═cd0fdd97-300e-411a-bdce-f142813236c1
 # ╠═bc7188d7-38a4-49a3-9271-c2ad4b4ebf91
-# ╠═aeceb735-da1b-4db5-9964-538b316441c2
+# ╠═e897f08f-8d16-4cf8-bc56-41c6c53e34d9
 # ╠═c6b1fd66-ef1f-427e-b8cc-d2da9c127ee3
 # ╠═9b589eb8-c42c-45cf-a2d4-89fd1d522759
 # ╟─b22850cc-26fa-4fbe-a919-0ae95c8571d6
@@ -602,7 +615,6 @@ norm(p_res.x[2])
 # ╠═259c5f1b-5447-4690-a706-5dcc4c9fa5bb
 # ╠═a80c462e-b999-4f69-b6d5-536e94e7f536
 # ╟─208bcc35-4258-4aa4-9302-df0b44999f5f
-# ╠═06d1f25c-80d8-4a07-8b53-3cabc90e70a9
 # ╟─8552ff47-9c4c-4028-b6cd-635f144ae522
 # ╠═4d79c53a-06ee-4c42-8fdf-678ca6a8c7e8
 # ╠═707d23d1-f7b4-49cb-b0ff-11ec536939fa

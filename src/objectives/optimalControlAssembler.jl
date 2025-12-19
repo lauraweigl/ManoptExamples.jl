@@ -1,22 +1,48 @@
+raw"""
+Helper function that builds a basis of the tangent space of M at p
 """
- A:      Matrix to be written into\\
-row_idx: row index of block inside system\\
-detT:    degree of test function: 1: linear, 0: constant\\
-col_idx: column index of block inside system\\
-detB:    degree of basis function: 1: linear, 0: constant\\
-h:       length of interval\\
-nCell:    total number of intervals\\
-y:       iterate\\
+
+function build_base(M::AbstractManifold, p)
+    Bl = get_basis(M, p, DefaultOrthonormalBasis())
+    return get_vectors(M, p, Bl)
+end
+
+@doc raw"""
+This function is called by Newton's method to compute one block of the matrix for the Newton step
+
+Input:
+
+M:                      Product manifold\\
+y:                      iterate\\
+eval:                   function that evaluates y at left and right boundary point of i-th interval, signature: eval(y, i, scaling), must return an element of M
+A:                      Matrix to be written into\\
+integrand:	            integrand of the functional as a struct, must have a field value and a field derivative\\
+transport:	            vectortransport used to compute the connection term (as a struct, must have a field value and a field derivative)\\
+time_intervals:			time interval with discrete time points
+
+Keyword arguments:
+
+row_index:                  row index of block inside system\\
+column_index:               column index of block inside system\\
+test_space:    				space of test functions as a struct, must have a field manifold (base manifold of the tangent spaces) and a field degree (degree of test functions (1: linear, 0: constant))\\
+ansatz_space:   			space of ansatz functions as a struct, must have a field manifold (base manifold of the tangent spaces) and a field degree (degree of ansatz functions (1: linear, 0: constant))\\
+
 ...
 """
 
 # Die Funktion braucht man, wenn man eine Testfunktion in der Ableitung des Vektortransports hat und eine außerhalb, also z.B. A'(y)ϕ(P'(y)δy p)
 
-function get_Jac_Lyy!(eval, A, row_idx, col_idx, h, nCells, y, integrand, transport)
-    M = integrand.domain
-    N = integrand.precodomain
+function get_Jac_Lyy!(M::ProductManifold, y, eval, A, integrand, transport, time_interval; row_index = nothing, column_index = nothing, test_space = nothing, ansatz_space = nothing)
+    isnothing(row_index) && error("Please provide the row index of the block to be assembled")
+    isnothing(column_index) && error("Please provide the column index of the block to be assembled")
+    isnothing(test_space) && error("Please provide the space of the test functions")
+    isnothing(ansatz_space) && error("Please provide the space of the ansatz functions")
+
+    degree_test_function = test_space.degree
+    degree_ansatz_function = ansatz_space.degree
+
     # Schleife über Intervalle
-    for i in 1:nCells
+    for i in 1:(length(time_interval) - 1)
 
         # Evaluation of the current iterate. This routine has to be provided from outside, because Knowledge about the basis functions is needed
         yl = eval(y, i, 0.0)
@@ -25,22 +51,21 @@ function get_Jac_Lyy!(eval, A, row_idx, col_idx, h, nCells, y, integrand, transp
         #yl=ArrayPartition(getindex.(y.x, (i-1...,)))
         #yr=ArrayPartition(getindex.(y.x, (i...,)))
 
-        Bcl = get_basis(M, yl.x[col_idx], DefaultOrthonormalBasis())
-        Bl = get_vectors(M, yl.x[col_idx], Bcl)
-        Bcr = get_basis(M, yr.x[col_idx], DefaultOrthonormalBasis())
-        Br = get_vectors(M, yr.x[col_idx], Bcr)
 
-        Tcl = get_basis(N, yl.x[row_idx], DefaultOrthonormalBasis())
-        Tl = get_vectors(N, yl.x[row_idx], Tcl)
-        Tcr = get_basis(N, yr.x[row_idx], DefaultOrthonormalBasis())
-        Tr = get_vectors(N, yr.x[row_idx], Tcr)
+        base_ansatz_space_left = build_base(ansatz_space.manifold, yl[M, column_index])
+        base_ansatz_space_right = build_base(ansatz_space.manifold, yr[M, column_index])
+        base_test_space_left = build_base(test_space.manifold, yl[M, row_index])
+        base_test_space_right = build_base(test_space.manifold, yr[M, row_index])
 
+        h = time_interval[i + 1] - time_interval[i]
+
+        if degree_test_function == 1 && degree_ansatz_function == 1
         # In the following, all combinations of test and basis functions have to be considered.
-
-        assemble_local_Jac_Lyy!(A, row_idx, col_idx, h, i, yl, yr, Bl, 1, 0, Tl, 1, 0, integrand, transport)
-        assemble_local_Jac_Lyy!(A, row_idx, col_idx, h, i, yl, yr, Br, 0, 1, Tl, 1, 0, integrand, transport)
-        assemble_local_Jac_Lyy!(A, row_idx, col_idx, h, i, yl, yr, Bl, 1, 0, Tr, 0, 1, integrand, transport)
-        assemble_local_Jac_Lyy!(A, row_idx, col_idx, h, i, yl, yr, Br, 0, 1, Tr, 0, 1, integrand, transport)
+            assemble_local_jacobian_Lyy!(M, yl, yr, A, h, i, base_ansatz_space_left, 1, 0, base_test_space_left, 1, 0, integrand, transport; row_index = row_index)
+            assemble_local_jacobian_Lyy!(M, yl, yr, A, h, i, base_ansatz_space_right, 0, 1, base_test_space_left, 1, 0, integrand, transport; row_index = row_index)
+            assemble_local_jacobian_Lyy!(M, yl, yr, A, h, i, base_ansatz_space_left, 1, 0, base_test_space_right, 0, 1, integrand, transport; row_index = row_index)
+            assemble_local_jacobian_Lyy!(M, yl, yr, A, h, i, base_ansatz_space_right, 0, 1, base_test_space_right, 0, 1, integrand, transport; row_index = row_index)
+        end
 
     end
     return
@@ -48,8 +73,8 @@ end
 
 """
  A:      Matrix to be written into\\
-row_idx: row index of block inside system\\
-col_idx: column index of block inside system\\
+row_index: row index of block inside system\\
+column_index: column index of block inside system\\
 
 h:       length of interval\\
 i:       index of interval\\
@@ -66,60 +91,61 @@ tfl:     0/1 scaling factor at left boundary\\
 tfr:     0/1 scaling factor at right boundary \\
 ...
 """
-function assemble_local_Jac_Lyy!(A, row_idx, col_idx, h, i, yl, yr, B, bfl, bfr, T, tfl, tfr, integrand, transport)
-    dim = manifold_dimension(integrand.domain)
-    dimc = manifold_dimension(integrand.precodomain)
+function assemble_local_jacobian_Lyy!(M, y_left, y_right, A, h, i, base_ansatz, bfl, bfr, base_test, tfl, tfr, integrand, transport; row_index = nothing, M_component = M[row_index])
+
+    dim_ansatz = length(base_ansatz)
+    dim_test = length(base_test)
+
     if tfr == 1
-        idxc = dimc * (i - 1)
+        idxc = dim_test * (i - 1)
     else
-        idxc = dimc * (i - 2)
+        idxc = dim_test * (i - 2)
     end
     if bfr == 1
-        idx = dim * (i - 1)
+        idx = dim_ansatz * (i - 1)
     else
-        idx = dim * (i - 2)
+        idx = dim_ansatz * (i - 2)
     end
 
-    ydot = (yr - yl) / h
-    quadwght = 0.5 * h
+    ydot = (y_right - y_left) / h # approximate time derivative of y
+    quadrature_weight = 0.5 * h
     nA1 = size(A, 1)
     nA2 = size(A, 2)
+
     #	Schleife über Komponenten der Testfunktion
-    for k in 1:dimc
+    for k in 1:dim_test
         # Schleife über Komponenten der Basisfunktion
-        for j in 1:dim
+        for j in 1:dim_ansatz
             # Sicherstellen, dass wir in Indexgrenzen der Matrix bleiben
             if idx + j >= 1 && idxc + k >= 1 && idx + j <= nA2 && idxc + k <= nA1
 
-                # Zeit-Ableitungen der Basis- und Testfunktionen (=0 am jeweils anderen Rand)
-                Tdot = (tfr - tfl) * T[k] / h
-                Bdot = (bfr - bfl) * B[j] / h
+                # approximation of time derivative of ansatz and test functions (=0 am jeweils anderen Rand)
+                #Tdot = (tfr - tfl) * base_test[k] / h
+                Bdot = (bfr - bfl) * base_ansatz[j] / h
 
-                # Modifikation für Kovariante Ableitung:
-                # y-Ableitungen der Projektionen am linken Punkt
-                # P'(yl)bfl*B[j] (tfl*T(k))
+                # modification for covariant derivative:
+                # derivative of the vector transport w.r.t. y at left quadrature point
+                # P'(yl)bfl*base_ansatz[j] (tfl*base_test(k))
 
-                Pprimel = transport.derivative(integrand.domain, yl, bfl * B[j], tfl * T[k])
-                Pprimer = transport.derivative(integrand.domain, yr, bfr * B[j], tfr * T[k])
+                Pprime_left = transport.derivative(M_component, y_left, bfl * base_ansatz[j], tfl * base_test[k])
+                Pprime_right = transport.derivative(M_component, y_right, bfr * base_ansatz[j], tfr * base_test[k])
 
-                # Zeit- und y-Ableitungen der Projektionen
-                Pprimedotl = (bfr - bfl) * Pprimel / h
-                Pprimedotr = (bfr - bfl) * Pprimer / h
+                # approximation of the time derivative of the vector transport
 
-                Pprimedot_neu = (Pprimer - Pprimel) / h
+                Pprimedot = (Pprime_right - Pprime_left) / h
 
                 # Einsetzen in die rechte Seite am rechten und linken Quadraturpunkt
 
-                tmp = integrand.derivative(integrand, yl, ydot, bfl * B[j], Bdot, bfl * Pprimel, Pprimedot_neu)
+                tmp = integrand.derivative(integrand, y_left, ydot, bfl * base_ansatz[j], Bdot, bfl * Pprime_left, Pprimedot)
                 #tmp+=integrand.derivative(integrand,yr,ydot,bfr*B[j],Bdot,bfr*Pprimel,Pprimedot_neu)
 
 
                 # Update des Matrixeintrags
 
                 #tmp+=integrand.derivative(integrand,yl,ydot,bfl*B[j], Bdot,bfl*Pprimer,Pprimedot_neu)
-                tmp += integrand.derivative(integrand, yr, ydot, bfr * B[j], Bdot, bfr * Pprimer, Pprimedot_neu)
+                tmp += integrand.derivative(integrand, y_right, ydot, bfr * base_ansatz[j], Bdot, bfr * Pprime_right, Pprimedot)
 
-                A[idxc + k, idx + j] += quadwght * tmp
+                A[idxc + k, idx + j] += quadrature_weight * tmp
             end
         end
     end
@@ -142,13 +168,6 @@ function get_rhs_simplified_y!(eval, b, row_idx, degT, h, nCells, y, y_trial, in
         Tcr = get_basis(S, yr.x[row_idx], DefaultOrthonormalBasis())
         Tr = get_vectors(S, yr.x[row_idx], Tcr)
 
-        dim = manifold_dimension(S)
-        # transport test functions to $T_{x_k}S$
-        # for k=1:dim
-        # 	Tl[k]=transport.value(S,yl.x[row_idx],Tl[k],yl_trial.x[row_idx])
-        # 	Tr[k]=transport.value(S,yr.x[row_idx],Tr[k],yr_trial.x[row_idx])
-        # end
-
         if degT == 1
             assemble_local_rhs_OC!(b, row_idx, h, i, yl_trial, yr_trial, Tl, 1, 0, integrand, transport, yl, yr)
             assemble_local_rhs_OC!(b, row_idx, h, i, yl_trial, yr_trial, Tr, 0, 1, integrand, transport, yl, yr)
@@ -168,7 +187,6 @@ function assemble_local_rhs_OC!(b, row_idx, h, i, yl, yr, T, tlf, trf, integrand
     else
         idx = dimc * (i - 2)
     end
-    ydotl = (yr - yl) / h
     ydotr = (yr - yl) / h
     # trapezoidal rule
     quadwght = 0.5 * h
@@ -190,11 +208,17 @@ function assemble_local_rhs_OC!(b, row_idx, h, i, yl, yr, T, tlf, trf, integrand
 end
 
 
-function get_Jac_simplified!(eval, A, row_idx, degT, col_idx, degB, h, nCells, y, y_trial, integrand, transport)
-    M = integrand.domain
-    N = integrand.precodomain
+function get_jacobian_simplified!(M, y, y_trial, eval, A, integrand, transport, time_interval; row_index = nothing, column_index = nothing, test_space=nothing, ansatz_space=nothing)
+    isnothing(row_index) && error("Please provide the row index of the block to be assembled")
+    isnothing(column_index) && error("Please provide the column index of the block to be assembled")
+    isnothing(test_space) && error("Please provide the space of the test functions")
+    isnothing(ansatz_space) && error("Please provide the space of the ansatz functions")
+
+    degree_test_function = test_space.degree
+    degree_ansatz_function = ansatz_space.degree
+
     # loop: time intervals
-    for i in 1:nCells
+    for i in 1:(length(time_interval) - 1)
 
         # Evaluation of the current iterate. This routine has to be provided from outside, because knowledge about the basis functions is needed
         yl = eval(y, i, 0.0)
@@ -203,43 +227,28 @@ function get_Jac_simplified!(eval, A, row_idx, degT, col_idx, degB, h, nCells, y
         yl_trial = eval(y_trial, i, 0.0)
         yr_trial = eval(y_trial, i, 1.0)
 
-        Bcl = get_basis(M, yl_trial.x[col_idx], DefaultOrthonormalBasis())
-        Bl = get_vectors(M, yl_trial.x[col_idx], Bcl)
-        Bcr = get_basis(M, yr_trial.x[col_idx], DefaultOrthonormalBasis())
-        Br = get_vectors(M, yr_trial.x[col_idx], Bcr)
+        base_ansatz_space_left = build_base(ansatz_space.manifold, yl_trial[M, column_index])
+        base_ansatz_space_right = build_base(ansatz_space.manifold, yr_trial[M, column_index])
+        base_test_space_left = build_base(test_space.manifold, yl[M, row_index])
+        base_test_space_right = build_base(test_space.manifold, yr[M, row_index])
 
-        Tcl = get_basis(N, yl.x[row_idx], DefaultOrthonormalBasis())
-        Tl = get_vectors(N, yl.x[row_idx], Tcl)
-        Tcr = get_basis(N, yr.x[row_idx], DefaultOrthonormalBasis())
-        Tr = get_vectors(N, yr.x[row_idx], Tcr)
+        dim = manifold_dimension(test_space.manifold)
 
-        # for k=1:manifold_dimension(M)
-        # 	Bl[k]=transport.value(M,yl.x[row_idx],Bl[k],yl_trial.x[row_idx])
-        # 	Br[k]=transport.value(M,yr.x[row_idx],Br[k],yr_trial.x[row_idx])
-        # end
-
-        for k in 1:manifold_dimension(N)
-            Tl[k] = transport.value(N, yl.x[row_idx], Tl[k], yl_trial.x[row_idx])
-            Tr[k] = transport.value(N, yr.x[row_idx], Tr[k], yr_trial.x[row_idx])
+        for k in 1:dim
+            base_test_space_left[k] = transport.value(test_space.manifold, yl[M,row_index], base_test_space_left[k], yl_trial[M,row_index])
+            base_test_space_right[k] = transport.value(test_space.manifold, yr[M,row_index], base_test_space_right[k], yr_trial[M,row_index])
         end
+
+        h = time_interval[i + 1] - time_interval[i]
 
         # In the following, all combinations of test and basis functions have to be considered.
 
         # The case, where both test and basis functions are linear. We have 2x2=4 combinations, since there are two test/basis functions on each interval
-        if degT == 1 && degB == 1
-            assemble_local_Jac_with_connection!(A, row_idx, col_idx, h, i, yl_trial, yr_trial, Bl, 1, 0, Tl, 1, 0, integrand, transport)
-            assemble_local_Jac_with_connection!(A, row_idx, col_idx, h, i, yl_trial, yr_trial, Br, 0, 1, Tl, 1, 0, integrand, transport)
-            assemble_local_Jac_with_connection!(A, row_idx, col_idx, h, i, yl_trial, yr_trial, Bl, 1, 0, Tr, 0, 1, integrand, transport)
-            assemble_local_Jac_with_connection!(A, row_idx, col_idx, h, i, yl_trial, yr_trial, Br, 0, 1, Tr, 0, 1, integrand, transport)
-        end
-        # The case, where both test functions are linear and basis functions are piecewies constant. We have 1x2=2 combinations, since there are are two test functions and 1 basis function on each interval
-        if degT == 1 && degB == 0
-            assemble_local_Jac_with_connection!(A, row_idx, col_idx, h, i, yl_trial, yr_trial, Br, 1, 1, Tl, 1, 0, integrand, transport)
-            assemble_local_Jac_with_connection!(A, row_idx, col_idx, h, i, yl_trial, yr_trial, Br, 1, 1, Tr, 0, 1, integrand, transport)
-        end
-        if degT == 0 && degB == 1
-            assemble_local_Jac_with_connection!(A, row_idx, col_idx, h, i, yl_trial, yr_trial, Bl, 1, 0, Tr, 1, 1, integrand, transport)
-            assemble_local_Jac_with_connection!(A, row_idx, col_idx, h, i, yl_trial, yr_trial, Br, 0, 1, Tr, 1, 1, integrand, transport)
+        if degree_test_function == 1 && degree_ansatz_function == 1
+            assemble_local_jacobian_Lyy!(M, yl_trial, yr_trial, A, h, i, base_ansatz_space_left, 1, 0, base_test_space_left, 1, 0, integrand, transport; row_index = row_index) # ich glaube hier müsste man beim Vektortransport komponenten nehmen, dann passts aber wahrschieblich im oberen Fall nicht
+            assemble_local_jacobian_Lyy!(M, yl_trial, yr_trial, A, h, i, base_ansatz_space_right, 0, 1, base_test_space_left, 1, 0, integrand, transport; row_index = row_index)
+            assemble_local_jacobian_Lyy!(M, yl_trial, yr_trial, A, h, i, base_ansatz_space_left, 1, 0, base_test_space_right, 0, 1, integrand, transport; row_index = row_index)
+            assemble_local_jacobian_Lyy!(M, yl_trial, yr_trial, A, h, i, base_ansatz_space_right, 0, 1, base_test_space_right, 0, 1, integrand, transport; row_index = row_index)
         end
         # Other cases could be added here. In the rod example I did not need them, thus I havent implemented them
     end
