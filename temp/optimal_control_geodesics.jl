@@ -244,12 +244,12 @@ function Jyu_at(Integrand,y,ydot,B,Bdot,T,Tdot)
 end;
 
 # ╔═╡ 259c5f1b-5447-4690-a706-5dcc4c9fa5bb
-function P_prime_test_lambda(Integrand,y,B,T)
+function P_prime_test_lambda(S,y,B,T)
 	return transport_by_proj_prime(S, y.x[1], T, y.x[3])
 end;
 
 # ╔═╡ a80c462e-b999-4f69-b6d5-536e94e7f536
-function P_doubleprime_et_al(Integrand,y,B,T)
+function P_doubleprime_et_al(S,y,B,T)
 	return transport_by_proj_doubleprime(S, y.x[1], T, B, y.x[3]) + transport_by_proj_prime(S, y.x[1], transport_by_proj_prime(S, y.x[1], B, T), y.x[3])
 end;
 
@@ -464,13 +464,13 @@ function (ne::NewtonEquation)(M, VB, p, p_trial)
 	Oytrial_unproj = ArrayPartition(Oytrial1,Oytrial2,Oytrial3_unproj)
 
 	#TODO:
-	#ManoptExamples.get_rhs_simplified_y!(evaluate,bctrial1,1,1,h,nCells,Oy,Oytrial_unproj,ne.integrand_Lyy1, ne.VT)
+	ManoptExamples.get_rhs_simplified_y!(M, Oy, Oytrial_unproj, evaluate, bctrial1, ne.integrand_Lyy1, ne.VT, ne.discrete_time_interval; row_index = 1, test_space = ne.test_space.x[1])
 	
 	A13_trial = spzeros(n1,n3)
 	#ManoptExamples.get_Jac_simplified!(evaluate,A13_trial,1,1,1,1,h,nCells, Oy,Oytrial,ne.integrand_L_λy,ne.VT)
 
 	#TODO:
-	#ManoptExamples.get_jacobian_simplified!(M, Oy, Oytrial, evaluate,A13_trial,ne.integrand_L_λy,ne.VT,ne.discrete_time_interval; row_index = 1, column_index = 1, test_space=ne.test_space.x[1], ansatz_space=ne.ansatz_space.x[3])
+	ManoptExamples.get_jacobian_simplified!(M, Oy, Oytrial, evaluate,A13_trial,ne.integrand_L_λy,ne.VT,ne.discrete_time_interval; row_index = 1, column_index = 1, test_space=ne.test_space.x[1], ansatz_space=ne.ansatz_space.x[3])
 
 	lambda_helper = get_coordinates(powerS, p_trial[M,1], p_trial[M,3], DefaultOrthogonalBasis())
 	
@@ -509,9 +509,9 @@ begin
 	NE = NewtonEquation(product, integrand_Lyy_1, integrand_Lyy_2, integrand_Lyu, integrand_Lλy, integrand_Luλ, integrand_Luu, integrandJy, integrandJu, integrand_state_eq, transport, transport_Lyy_1, transport_Lyy_2, discrete_time, test_spaces, ansatz_spaces)
 
 	st_res = vectorbundle_newton(product, TangentBundle(product), NE, y_0; sub_problem=solve_in_basis_repr, sub_state=AllocatingEvaluation(),
-	stopping_criterion=(StopAfterIteration(150)|StopWhenChangeLess(product,1e-11; outer_norm=Inf)),
+	stopping_criterion=(StopAfterIteration(50)|StopWhenChangeLess(product,1e-11; outer_norm=Inf)),
 	retraction_method=pr,
-	#stepsize=AffineCovariantStepsize(product, θ_des=0.01, outer_norm=Inf),
+	#stepsize=AffineCovariantStepsize(product, θ_des=0.001, outer_norm=Inf),
 	debug=[:Iteration, (:Change, "Change: %1.8e"), :Stepsize, "\n", :Stop],
 	record=[:Iterate, :Change, :Stepsize],
 	return_state=true

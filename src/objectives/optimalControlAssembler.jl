@@ -1,12 +1,3 @@
-raw"""
-Helper function that builds a basis of the tangent space of M at p
-"""
-
-function build_base(M::AbstractManifold, p)
-    Bl = get_basis(M, p, DefaultOrthonormalBasis())
-    return get_vectors(M, p, Bl)
-end
-
 @doc raw"""
 This function is called by Newton's method to compute one block of the matrix for the Newton step
 
@@ -152,34 +143,33 @@ function assemble_local_jacobian_Lyy!(M, y_left, y_right, A, h, i, base_ansatz, 
     return
 end
 
-function get_rhs_simplified_y!(eval, b, row_idx, degT, h, nCells, y, y_trial, integrand, transport)
-    S = integrand.precodomain
+function get_rhs_simplified_y!(M::AbstractManifold, y, y_trial, eval, b, integrand, transport, time_interval; row_index = nothing, test_space = nothing)
+
+    isnothing(test_space) && error("Please provide the space of the test functions")
+    isnothing(row_index) && error("Please provide a row index")
+
     # loop: time intervals
-    for i in 1:nCells
+    for i in 1:(length(time_interval) - 1)
         yl = eval(y, i, 0.0)
         yr = eval(y, i, 1.0)
 
         yl_trial = eval(y_trial, i, 0.0)
         yr_trial = eval(y_trial, i, 1.0)
 
-        Tcl = get_basis(S, yl.x[row_idx], DefaultOrthonormalBasis())
-        Tl = get_vectors(S, yl.x[row_idx], Tcl)
+        base_test_space_left = build_base(test_space.manifold, yl[M, row_index])
+        base_test_space_right = build_base(test_space.manifold, yr[M, row_index])
 
-        Tcr = get_basis(S, yr.x[row_idx], DefaultOrthonormalBasis())
-        Tr = get_vectors(S, yr.x[row_idx], Tcr)
+        h = time_interval[i + 1] - time_interval[i]
 
-        if degT == 1
-            assemble_local_rhs_OC!(b, row_idx, h, i, yl_trial, yr_trial, Tl, 1, 0, integrand, transport, yl, yr)
-            assemble_local_rhs_OC!(b, row_idx, h, i, yl_trial, yr_trial, Tr, 0, 1, integrand, transport, yl, yr)
-        end
-        if degT == 0
-            assemble_local_rhs_OC!(b, row_idx, h, i, yl_trial, yr_trial, Tr, 1, 1, integrand, transport, yl, yr)
+        if test_space.degree == 1
+            assemble_local_rhs_OC!(b, row_index, h, i, yl_trial, yr_trial, base_test_space_left, 1, 0, integrand, transport)
+            assemble_local_rhs_OC!(b, row_index, h, i, yl_trial, yr_trial, base_test_space_right, 0, 1, integrand, transport)
         end
     end
     return
 end
 
-function assemble_local_rhs_OC!(b, row_idx, h, i, yl, yr, T, tlf, trf, integrand, transport, yl_vorher, yr_vorher)
+function assemble_local_rhs_OC!(b, row_idx, h, i, yl, yr, T, tlf, trf, integrand, transport)
     dimc = manifold_dimension(integrand.precodomain)
     S = integrand.precodomain
     if trf == 1
@@ -245,12 +235,12 @@ function get_jacobian_simplified!(M, y, y_trial, eval, A, integrand, transport, 
 
         # The case, where both test and basis functions are linear. We have 2x2=4 combinations, since there are two test/basis functions on each interval
         if degree_test_function == 1 && degree_ansatz_function == 1
-            assemble_local_jacobian_Lyy!(M, yl_trial, yr_trial, A, h, i, base_ansatz_space_left, 1, 0, base_test_space_left, 1, 0, integrand, transport; row_index = row_index) # ich glaube hier müsste man beim Vektortransport komponenten nehmen, dann passts aber wahrschieblich im oberen Fall nicht
-            assemble_local_jacobian_Lyy!(M, yl_trial, yr_trial, A, h, i, base_ansatz_space_right, 0, 1, base_test_space_left, 1, 0, integrand, transport; row_index = row_index)
-            assemble_local_jacobian_Lyy!(M, yl_trial, yr_trial, A, h, i, base_ansatz_space_left, 1, 0, base_test_space_right, 0, 1, integrand, transport; row_index = row_index)
-            assemble_local_jacobian_Lyy!(M, yl_trial, yr_trial, A, h, i, base_ansatz_space_right, 0, 1, base_test_space_right, 0, 1, integrand, transport; row_index = row_index)
+            assemble_local_jacobian_with_connection!(M, yl_trial, yr_trial, A, h, i, base_ansatz_space_left, 1, 0, base_test_space_left, 1, 0, integrand, transport; row_index = row_index) 
+            assemble_local_jacobian_with_connection!(M, yl_trial, yr_trial, A, h, i, base_ansatz_space_right, 0, 1, base_test_space_left, 1, 0, integrand, transport; row_index = row_index)
+            assemble_local_jacobian_with_connection!(M, yl_trial, yr_trial, A, h, i, base_ansatz_space_left, 1, 0, base_test_space_right, 0, 1, integrand, transport; row_index = row_index)
+            assemble_local_jacobian_with_connection!(M, yl_trial, yr_trial, A, h, i, base_ansatz_space_right, 0, 1, base_test_space_right, 0, 1, integrand, transport; row_index = row_index)
         end
-        # Other cases could be added here. In the rod example I did not need them, thus I havent implemented them
+        # Other cases could be added here. 
     end
     return
 end
