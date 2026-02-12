@@ -569,7 +569,7 @@ wireframe!(ax, sx, sy, sz, color = RGBA(0.5,0.5,0.7,0.1); transparency=true)
     π3(x) = 1.01*x[3]
 	arrows!(ax, π1.(p_res.x[1]), π2.(p_res.x[1]), π3.(p_res.x[1]), π1.(-p_res.x[2]), π2.(-p_res.x[2]), π3.(-p_res.x[2]); color=:green, linewidth=0.001, arrowsize=Vec3f(0.03, 0.03, 0.05), transparency=true, lengthscale=0.1)
 	scatterlines!(ax, π1.(state_final), π2.(state_final), π3.(state_final); markersize=5, color=:orange, linewidth=0.1)
-	#scatterlines!(ax, π1.(state_start), π2.(state_start), π3.(state_start); markersize=8, color=:blue, linewidth=1)
+	scatterlines!(ax, π1.(state_start), π2.(state_start), π3.(state_start); markersize=8, color=:blue, linewidth=1)
 	scatter!(ax, π1.([y01, yT1]), π2.([y01, yT1]), π3.([y01, yT1]); markersize =7, color=:red)
 	
 	#scatter!(ax, 1.0,1.0,1.0; markersize =9, color=:red)
